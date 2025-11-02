@@ -19,7 +19,7 @@ jobs:
     
     steps:
       - name: Build and Deploy with Manual Version
-        uses: hauke-cloud/oci-helm-githubaction@v1
+        uses: hauke-cloud/oci-helm-github-action@v1
         with:
           # Use manual version instead of svu
           calculate-version: 'false'

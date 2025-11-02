@@ -5,7 +5,7 @@ Thank you for your interest in contributing! This document provides guidelines f
 ## Getting Started
 
 1. Fork the repository
-2. Clone your fork: `git clone https://github.com/YOUR_USERNAME/oci-helm-githubaction.git`
+2. Clone your fork: `git clone https://github.com/YOUR_USERNAME/oci-helm-github-action.git`
 3. Create a feature branch: `git checkout -b feature/my-new-feature`
 4. Make your changes
 5. Test your changes
@@ -88,7 +88,7 @@ Create a test repository with:
 Then reference your branch in a workflow:
 
 ```yaml
-- uses: YOUR_USERNAME/oci-helm-githubaction@your-branch
+- uses: YOUR_USERNAME/oci-helm-github-action@your-branch
   with:
     image-name: ghcr.io/YOUR_USERNAME/test-repo
     oci-namespace: YOUR_USERNAME/charts

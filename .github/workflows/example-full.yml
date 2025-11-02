@@ -41,7 +41,7 @@ jobs:
     
     steps:
       - name: Build and Deploy OCI Image and Helm Chart
-        uses: hauke-cloud/oci-helm-githubaction@v1
+        uses: hauke-cloud/oci-helm-github-action@v1
         id: build-deploy
         with:
           # Version configuration
