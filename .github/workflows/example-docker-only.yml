@@ -1,0 +1,32 @@
+name: Example - Docker Only
+
+on:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build-docker:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Build and Push Docker Image
+        uses: hauke-cloud/oci-helm-githubaction@v1
+        with:
+          # Disable Helm build
+          build-helm: 'false'
+          
+          # Docker configuration
+          build-docker: 'true'
+          image-name: ghcr.io/${{ github.repository }}
+          docker-platforms: 'linux/amd64,linux/arm64'
+          
+          # Required even when build-helm is false
+          oci-namespace: ${{ github.repository_owner }}/charts
+          
+          # Registry authentication
+          registry-password: ${{ secrets.GITHUB_TOKEN }}

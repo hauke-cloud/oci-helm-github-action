@@ -1,0 +1,311 @@
+name: 'Build and Deploy OCI Image and Helm Chart'
+description: 'Build and push Docker image to OCI registry and package/deploy Helm chart with semantic versioning'
+author: 'hauke-cloud'
+
+branding:
+  icon: 'package'
+  color: 'blue'
+
+inputs:
+  # Version inputs
+  calculate-version:
+    description: 'Calculate next semantic version using svu'
+    required: false
+    default: 'true'
+  push-tag:
+    description: 'Push git tag when calculating version'
+    required: false
+    default: 'true'
+  manual-version:
+    description: 'Manual version override (skips svu calculation)'
+    required: false
+    default: ''
+
+  # Docker inputs
+  build-docker:
+    description: 'Build and push Docker image'
+    required: false
+    default: 'true'
+  dockerfile-path:
+    description: 'Path to Dockerfile'
+    required: false
+    default: './Dockerfile'
+  docker-context:
+    description: 'Docker build context'
+    required: false
+    default: '.'
+  image-name:
+    description: 'Docker image name (e.g., ghcr.io/owner/repo)'
+    required: true
+  docker-platforms:
+    description: 'Target platforms for Docker build'
+    required: false
+    default: 'linux/amd64'
+  docker-build-args:
+    description: 'Docker build arguments (multiline)'
+    required: false
+    default: ''
+  tag-latest:
+    description: 'Also tag image as latest'
+    required: false
+    default: 'true'
+
+  # Helm inputs
+  build-helm:
+    description: 'Build and push Helm chart'
+    required: false
+    default: 'true'
+  chart-dir:
+    description: 'Path to Helm chart directory'
+    required: false
+    default: './helm'
+  chart-name:
+    description: 'Helm chart name (defaults to repository name)'
+    required: false
+    default: ''
+  oci-registry:
+    description: 'OCI registry URL'
+    required: false
+    default: 'ghcr.io'
+  oci-namespace:
+    description: 'OCI registry namespace (e.g., owner/charts)'
+    required: true
+
+  # Registry auth inputs
+  registry-username:
+    description: 'Registry username'
+    required: false
+    default: ${{ github.actor }}
+  registry-password:
+    description: 'Registry password/token'
+    required: true
+
+  # Release inputs
+  create-github-release:
+    description: 'Create GitHub release'
+    required: false
+    default: 'true'
+  release-notes:
+    description: 'Custom release notes'
+    required: false
+    default: ''
+
+outputs:
+  version:
+    description: 'Version that was built/deployed'
+    value: ${{ steps.determine-version.outputs.version }}
+  docker-image:
+    description: 'Full Docker image reference with tag'
+    value: ${{ steps.docker-meta.outputs.image }}
+  helm-chart:
+    description: 'Full Helm chart OCI reference'
+    value: ${{ steps.helm-meta.outputs.chart }}
+
+runs:
+  using: 'composite'
+  steps:
+    # Checkout with full history for svu
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        fetch-tags: true
+
+    # Calculate or use manual version
+    - name: Calculate next version with svu
+      if: inputs.calculate-version == 'true' && inputs.manual-version == ''
+      uses: charlesthomas/github-action-svu@v1.1.3+3.2.3
+      id: svu-version
+      with:
+        pushTag: ${{ inputs.push-tag }}
+        verbose: true
+        cmd: next
+
+    # Determine final version
+    - name: Determine version
+      shell: bash
+      id: determine-version
+      run: |
+        if [ -n "${{ inputs.manual-version }}" ]; then
+          VERSION="${{ inputs.manual-version }}"
+          echo "Using manual version: ${VERSION}"
+        elif [ "${{ inputs.calculate-version }}" == "true" ]; then
+          VERSION="${{ steps.svu-version.outputs.next }}"
+          echo "Using svu calculated version: ${VERSION}"
+        else
+          VERSION="${{ github.sha }}"
+          echo "Using git SHA as version: ${VERSION}"
+        fi
+        echo "version=${VERSION}" >> $GITHUB_OUTPUT
+        echo "Final version: ${VERSION}"
+
+    # Set up Docker Buildx
+    - name: Set up Docker Buildx
+      if: inputs.build-docker == 'true'
+      uses: docker/setup-buildx-action@v3
+
+    # Login to registry
+    - name: Login to Container Registry
+      if: inputs.build-docker == 'true' || inputs.build-helm == 'true'
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ inputs.oci-registry }}
+        username: ${{ inputs.registry-username }}
+        password: ${{ inputs.registry-password }}
+
+    # Build and push Docker image
+    - name: Build Docker metadata
+      if: inputs.build-docker == 'true'
+      shell: bash
+      id: docker-meta
+      run: |
+        VERSION="${{ steps.determine-version.outputs.version }}"
+        IMAGE_BASE="${{ inputs.image-name }}"
+        TAGS="${IMAGE_BASE}:${VERSION}"
+        
+        if [ "${{ inputs.tag-latest }}" == "true" ]; then
+          TAGS="${TAGS},$IMAGE_BASE:latest"
+        fi
+        
+        echo "tags=${TAGS}" >> $GITHUB_OUTPUT
+        echo "image=${IMAGE_BASE}:${VERSION}" >> $GITHUB_OUTPUT
+        echo "Docker tags: ${TAGS}"
+
+    - name: Build and push Docker image
+      if: inputs.build-docker == 'true'
+      uses: docker/build-push-action@v6
+      with:
+        context: ${{ inputs.docker-context }}
+        file: ${{ inputs.dockerfile-path }}
+        push: true
+        tags: ${{ steps.docker-meta.outputs.tags }}
+        platforms: ${{ inputs.docker-platforms }}
+        build-args: ${{ inputs.docker-build-args }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    # Set up Helm
+    - name: Set up Helm
+      if: inputs.build-helm == 'true'
+      uses: azure/setup-helm@v4
+      with:
+        version: 'latest'
+
+    # Install yq
+    - name: Install yq
+      if: inputs.build-helm == 'true'
+      uses: mikefarah/yq@v4
+
+    # Determine chart name
+    - name: Determine chart name
+      if: inputs.build-helm == 'true'
+      shell: bash
+      id: helm-chart-name
+      run: |
+        if [ -n "${{ inputs.chart-name }}" ]; then
+          CHART_NAME="${{ inputs.chart-name }}"
+        else
+          CHART_NAME="${{ github.event.repository.name }}"
+        fi
+        echo "name=${CHART_NAME}" >> $GITHUB_OUTPUT
+        echo "Chart name: ${CHART_NAME}"
+
+    # Build Helm dependencies
+    - name: Build Helm dependencies
+      if: inputs.build-helm == 'true'
+      shell: bash
+      working-directory: ${{ inputs.chart-dir }}
+      run: |
+        if [ -f Chart.yaml ] && yq '.dependencies' Chart.yaml >/dev/null 2>&1; then
+          echo "Building Helm dependencies..."
+          helm dependency build
+        else
+          echo "No Helm dependencies found"
+        fi
+
+    # Update Chart.yaml with version
+    - name: Update Chart.yaml version
+      if: inputs.build-helm == 'true'
+      shell: bash
+      run: |
+        VERSION="${{ steps.determine-version.outputs.version }}"
+        CHART_FILE="${{ inputs.chart-dir }}/Chart.yaml"
+        
+        if [ -f "${CHART_FILE}" ]; then
+          yq -i ".version = \"${VERSION}\"" "${CHART_FILE}"
+          yq -i ".appVersion = \"${VERSION}\"" "${CHART_FILE}"
+          echo "Updated ${CHART_FILE} to version ${VERSION}"
+          cat "${CHART_FILE}"
+        else
+          echo "Error: Chart.yaml not found at ${CHART_FILE}"
+          exit 1
+        fi
+
+    # Package Helm chart
+    - name: Package Helm chart
+      if: inputs.build-helm == 'true'
+      shell: bash
+      id: helm-package
+      run: |
+        VERSION="${{ steps.determine-version.outputs.version }}"
+        CHART_NAME="${{ steps.helm-chart-name.outputs.name }}"
+        
+        helm package "${{ inputs.chart-dir }}" --version "${VERSION}"
+        
+        PACKAGE_FILE="${CHART_NAME}-${VERSION}.tgz"
+        if [ ! -f "${PACKAGE_FILE}" ]; then
+          echo "Error: Package file ${PACKAGE_FILE} not found"
+          exit 1
+        fi
+        
+        echo "package-file=${PACKAGE_FILE}" >> $GITHUB_OUTPUT
+        echo "Packaged: ${PACKAGE_FILE}"
+        ls -lh "${PACKAGE_FILE}"
+
+    # Login to Helm OCI registry
+    - name: Login to Helm OCI registry
+      if: inputs.build-helm == 'true'
+      shell: bash
+      run: |
+        echo "${{ inputs.registry-password }}" | helm registry login "${{ inputs.oci-registry }}" \
+          --username "${{ inputs.registry-username }}" --password-stdin
+
+    # Push Helm chart to OCI
+    - name: Push Helm chart to OCI
+      if: inputs.build-helm == 'true'
+      shell: bash
+      id: helm-meta
+      run: |
+        VERSION="${{ steps.determine-version.outputs.version }}"
+        CHART_NAME="${{ steps.helm-chart-name.outputs.name }}"
+        PACKAGE_FILE="${{ steps.helm-package.outputs.package-file }}"
+        OCI_URL="oci://${{ inputs.oci-registry }}/${{ inputs.oci-namespace }}"
+        
+        helm push "${PACKAGE_FILE}" "${OCI_URL}"
+        
+        CHART_REF="${{ inputs.oci-registry }}/${{ inputs.oci-namespace }}/${CHART_NAME}:${VERSION}"
+        echo "chart=${CHART_REF}" >> $GITHUB_OUTPUT
+        echo "Pushed chart to: ${CHART_REF}"
+
+    # Create GitHub Release
+    - name: Create GitHub Release
+      if: inputs.create-github-release == 'true'
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ steps.determine-version.outputs.version }}
+        name: Release ${{ steps.determine-version.outputs.version }}
+        body: |
+          ${{ inputs.release-notes }}
+          
+          ## Release ${{ steps.determine-version.outputs.version }}
+          
+          ${{ inputs.build-docker == 'true' && format('### Docker Image
+          - `{0}:{1}`{2}', inputs.image-name, steps.determine-version.outputs.version, inputs.tag-latest == 'true' && format('
+          - `{0}:latest`', inputs.image-name) || '') || '' }}
+          
+          ${{ inputs.build-helm == 'true' && format('### Helm Chart
+          - `oci://{0}/{1}/{2}:{3}`', inputs.oci-registry, inputs.oci-namespace, steps.helm-chart-name.outputs.name, steps.determine-version.outputs.version) || '' }}
+        files: |
+          ${{ inputs.build-helm == 'true' && steps.helm-package.outputs.package-file || '' }}
+      env:
+        GITHUB_TOKEN: ${{ inputs.registry-password }}

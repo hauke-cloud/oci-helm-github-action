@@ -1,0 +1,28 @@
+# .gitignore
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Backup files
+*.bak
+*.tmp
+
+# Test files
+test-output/
+*.test
+
+# Helm
+*.tgz
+charts/*/charts/
+charts/*/Chart.lock
+
+# Logs
+*.log

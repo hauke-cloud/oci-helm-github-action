@@ -1,0 +1,46 @@
+name: Example - Manual Version
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., v1.2.3)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  manual-release:
+    name: Manual Release
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Build and Deploy with Manual Version
+        uses: hauke-cloud/oci-helm-githubaction@v1
+        with:
+          # Use manual version instead of svu
+          calculate-version: 'false'
+          manual-version: ${{ inputs.version }}
+          push-tag: 'true'
+          
+          # Docker configuration
+          build-docker: 'true'
+          image-name: ghcr.io/${{ github.repository }}
+          
+          # Helm configuration
+          build-helm: 'true'
+          chart-dir: './helm'
+          oci-namespace: ${{ github.repository_owner }}/charts
+          
+          # Registry authentication
+          registry-password: ${{ secrets.GITHUB_TOKEN }}
+          
+          # Release with custom notes
+          create-github-release: 'true'
+          release-notes: |
+            Manual release of version ${{ inputs.version }}
+            
+            Released by: @${{ github.actor }}

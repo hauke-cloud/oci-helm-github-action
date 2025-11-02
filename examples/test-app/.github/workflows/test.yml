@@ -1,0 +1,61 @@
+name: Test OCI Helm Action
+
+on:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  test-action:
+    name: Test Build and Deploy
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Build and Deploy with OCI Helm Action
+        uses: hauke-cloud/oci-helm-githubaction@v1
+        id: deploy
+        with:
+          # Enable both Docker and Helm builds
+          build-docker: 'true'
+          build-helm: 'true'
+          
+          # Docker configuration
+          dockerfile-path: './Dockerfile'
+          docker-context: '.'
+          image-name: ghcr.io/${{ github.repository }}
+          tag-latest: 'true'
+          
+          # Helm configuration
+          chart-dir: './helm'
+          oci-registry: 'ghcr.io'
+          oci-namespace: ${{ github.repository_owner }}/charts
+          
+          # Registry authentication
+          registry-username: ${{ github.actor }}
+          registry-password: ${{ secrets.GITHUB_TOKEN }}
+          
+          # Version and release
+          calculate-version: 'true'
+          push-tag: 'true'
+          create-github-release: 'true'
+          release-notes: |
+            Test release of OCI Helm GitHub Action
+            
+            This is an automated test release.
+
+      - name: Display deployment information
+        run: |
+          echo "✅ Deployment successful!"
+          echo ""
+          echo "Version: ${{ steps.deploy.outputs.version }}"
+          echo "Docker Image: ${{ steps.deploy.outputs.docker-image }}"
+          echo "Helm Chart: ${{ steps.deploy.outputs.helm-chart }}"
+          echo ""
+          echo "You can pull the Docker image with:"
+          echo "  docker pull ${{ steps.deploy.outputs.docker-image }}"
+          echo ""
+          echo "You can install the Helm chart with:"
+          echo "  helm install test-app oci://${{ steps.deploy.outputs.helm-chart }}"

@@ -1,0 +1,34 @@
+name: Example - Helm Only
+
+on:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  deploy-helm:
+    name: Deploy Helm Chart
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Package and Push Helm Chart
+        uses: hauke-cloud/oci-helm-githubaction@v1
+        with:
+          # Disable Docker build
+          build-docker: 'false'
+          
+          # Helm configuration
+          build-helm: 'true'
+          chart-dir: './helm'
+          chart-name: 'my-application'
+          oci-registry: 'ghcr.io'
+          oci-namespace: ${{ github.repository_owner }}/charts
+          
+          # Required even when build-docker is false
+          image-name: ghcr.io/${{ github.repository }}
+          
+          # Registry authentication
+          registry-password: ${{ secrets.GITHUB_TOKEN }}
